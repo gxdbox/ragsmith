@@ -1,0 +1,16 @@
+# PDF RAG 预处理流水线依赖
+
+# PDF 解析
+PyMuPDF>=1.23.0
+
+# 配置管理
+PyYAML>=6.0
+
+# HTTP 请求（用于 Ollama API）
+requests>=2.28.0
+
+# 可选：更精确的 token 计算
+# tiktoken>=0.5.0
+
+# 可选：进度条显示
+# tqdm>=4.65.0

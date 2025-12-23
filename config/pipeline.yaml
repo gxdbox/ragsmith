@@ -1,0 +1,77 @@
+# RAGSmith 配置文件
+# 修改此文件即可控制流水线行为，无需修改代码
+
+# ==================== 输入配置 ====================
+pdf:
+  path: "data/input/系统架构设计师教程高级第2版 - 高保真.pdf"  # PDF 文件路径
+  start_page: 0                   # 起始页（0-indexed），用于断点续传
+  end_page: null                  # 结束页，null 表示处理到最后
+
+# ==================== 解析配置 ====================
+parsing:
+  extract_tables: true            # 是否提取表格
+  extract_images: false           # 是否记录图片占位
+  table_strategy: "lines"         # 表格识别策略: lines, text, lines_strict
+
+# ==================== 规范化配置 ====================
+normalization:
+  remove_headers_footers: true    # 移除页眉页脚
+  merge_broken_lines: true        # 合并异常换行
+  normalize_whitespace: true      # 规范化空白字符
+  normalize_punctuation: true     # 规范化标点符号
+  header_footer_max_lines: 3      # 页眉页脚最大行数
+  min_line_length: 5              # 最小行长度（用于识别噪声）
+
+# ==================== 切片配置 ====================
+chunk:
+  size: 800                       # chunk 大小（tokens）
+  overlap: 150                    # 重叠大小（tokens）
+  min_chunk_size: 100             # 最小 chunk 大小
+  split_by: "token"               # 切分方式: token, char, sentence
+  respect_sentence_boundary: true # 尽量在句子边界切分
+
+# ==================== 质量校验配置 ====================
+quality:
+  # 规则校验（始终启用）
+  min_length: 200                 # 最小长度（字符）
+  max_noise_ratio: 0.3            # 最大噪声比例
+  min_info_density: 0.3           # 最小信息密度
+  max_repetition_ratio: 0.5       # 最大重复比例
+  
+  # 乱码检测
+  garble_detection:
+    enabled: true
+    max_garble_ratio: 0.1         # 最大乱码比例
+  
+  # LLM 语义校验（可选）
+  llm_validation:
+    enabled: true                 # 是否启用 LLM 校验
+    only_edge_chunks: true        # 只对边缘 chunk 调用
+    edge_threshold: 0.6           # 边缘判定阈值（规则得分低于此值）
+
+# ==================== LLM 配置 ====================
+llm:
+  enabled: true                   # 是否启用 LLM
+  provider: "ollama"              # 提供商: ollama
+  model: "qwen:7b"                # 模型名称
+  endpoint: "http://localhost:11434"  # API 端点
+  max_calls: 500                  # 最大调用次数
+  timeout: 60                     # 超时时间（秒）
+  retry_times: 3                  # 重试次数
+  temperature: 0.1                # 温度参数
+
+# ==================== 输出配置 ====================
+output:
+  dir: "data/output"              # 输出目录
+  pages_file: "pages.jsonl"       # 逐页解析结果
+  chunks_file: "chunks.jsonl"     # 可向量化的 chunks
+  rejected_file: "rejected.jsonl" # 被过滤的内容
+  stats_file: "stats.json"        # 处理统计
+  checkpoint_file: "checkpoint.json"  # 断点续传文件
+
+# ==================== 运行配置 ====================
+runtime:
+  batch_size: 10                  # 批处理大小（页数）
+  log_level: "INFO"               # 日志级别
+  save_interval: 50               # 保存间隔（页数）
+  enable_checkpoint: true         # 启用断点续传
