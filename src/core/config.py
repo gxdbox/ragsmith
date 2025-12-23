@@ -113,17 +113,34 @@ class Config:
     从 YAML 文件加载配置，提供类型安全的访问接口
     """
     
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str = None):
         """
         初始化配置管理器
         
         Args:
-            config_path: YAML 配置文件路径
+            config_path: YAML 配置文件路径（可选，用于 from_dict 时）
         """
-        self.config_path = Path(config_path)
+        self.config_path = Path(config_path) if config_path else None
         self._raw_config: Dict[str, Any] = {}
-        self._load_config()
-        self._parse_config()
+        if config_path:
+            self._load_config()
+            self._parse_config()
+    
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> 'Config':
+        """
+        从字典创建 Config 对象
+        
+        Args:
+            config_dict: 配置字典
+            
+        Returns:
+            Config 对象
+        """
+        config = cls(config_path=None)
+        config._raw_config = config_dict
+        config._parse_config()
+        return config
     
     def _load_config(self) -> None:
         """加载 YAML 配置文件"""

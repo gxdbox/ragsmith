@@ -1,0 +1,78 @@
+# Balanced Strategy - 质量、性能、成本平衡（默认策略）
+# 适用场景：80% 的通用场景，适合大多数用户
+
+strategy:
+  name: "balanced"
+  display_name: "Balanced (Recommended)"
+  description: "质量、速度、成本的最佳平衡，适合大多数场景"
+  
+# PDF 输入配置
+pdf:
+  start_page: 0
+  end_page: null
+
+# 解析配置 - 标准提取
+parsing:
+  extract_tables: true
+  extract_images: false
+  table_strategy: "lines"
+
+# 规范化配置 - 标准清洗
+normalization:
+  remove_headers_footers: true
+  merge_broken_lines: true
+  normalize_whitespace: true
+  normalize_punctuation: true
+  header_footer_max_lines: 3
+  min_line_length: 5
+
+# 切片配置 - 中等大小
+chunk:
+  size: 800
+  overlap: 150
+  min_chunk_size: 100
+  split_by: "token"
+  respect_sentence_boundary: true
+
+# 质量校验 - 标准要求
+quality:
+  min_length: 200
+  max_noise_ratio: 0.3
+  min_info_density: 0.3
+  max_repetition_ratio: 0.5
+  
+  garble_detection:
+    enabled: true
+    max_garble_ratio: 0.1
+  
+  llm_validation:
+    enabled: true
+    only_edge_chunks: true
+    edge_threshold: 0.6
+
+# LLM 配置 - 选择性启用
+llm:
+  enabled: true
+  provider: "ollama"
+  model: "qwen:7b"
+  endpoint: "http://localhost:11434"
+  max_calls: 500
+  timeout: 60
+  retry_times: 3
+  temperature: 0.1
+
+# 输出配置
+output:
+  dir: "data/output"
+  pages_file: "pages.jsonl"
+  chunks_file: "chunks.jsonl"
+  rejected_file: "rejected.jsonl"
+  stats_file: "stats.json"
+  checkpoint_file: "checkpoint.json"
+
+# 运行配置
+runtime:
+  batch_size: 10
+  log_level: "INFO"
+  save_interval: 50
+  enable_checkpoint: true

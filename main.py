@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-PDF RAG 预处理流水线 - 主入口
+RAGSmith - 主入口
 
 用法:
-    python main.py                          # 使用默认配置
-    python main.py --config path/to/config.yaml
+    python main.py                          # 使用默认配置（balanced 策略）
+    python main.py --strategy fast          # 使用快速策略
+    python main.py --strategy high_quality  # 使用高质量策略
     python main.py --pdf path/to/file.pdf   # 覆盖 PDF 路径
     python main.py --no-llm                 # 禁用 LLM 校验
     python main.py --no-resume              # 不从断点续传
@@ -17,22 +18,36 @@ from pathlib import Path
 def parse_args():
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description="PDF RAG 预处理流水线 - 将超大 PDF 转换为高质量 RAG 数据",
+        description="RAGSmith - 产品级 PDF RAG 数据处理工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python main.py
-  python main.py --config config/pipeline.yaml
+  python main.py                                    # 使用默认 balanced 策略
+  python main.py --strategy fast                    # 快速处理
+  python main.py --strategy high_quality            # 高质量处理
   python main.py --pdf data/input/large.pdf --no-llm
-  python main.py --chunk-size 1000 --chunk-overlap 200
+  python main.py --list-strategies                  # 列出所有可用策略
         """
+    )
+    
+    parser.add_argument(
+        "--strategy", "-s",
+        type=str,
+        choices=["fast", "balanced", "high_quality", "expert"],
+        help="处理策略 (默认: balanced)。fast=快速, balanced=平衡, high_quality=高质量, expert=专家模式"
     )
     
     parser.add_argument(
         "--config", "-c",
         type=str,
         default="config/pipeline.yaml",
-        help="配置文件路径 (默认: config/pipeline.yaml)"
+        help="配置文件路径 (默认: config/pipeline.yaml)。expert 模式下必需"
+    )
+    
+    parser.add_argument(
+        "--list-strategies",
+        action="store_true",
+        help="列出所有可用策略并退出"
     )
     
     parser.add_argument(
@@ -95,6 +110,20 @@ def main():
     # 确定项目根目录
     script_dir = Path(__file__).parent.resolve()
     
+    # 列出策略
+    if args.list_strategies:
+        from src.core.strategy import get_strategy_engine
+        engine = get_strategy_engine()
+        strategies = engine.list_strategies()
+        
+        print("\n可用策略:\n")
+        for strategy in strategies:
+            status = "✓" if strategy['available'] else "✗"
+            print(f"  {status} {strategy['display_name']}")
+            print(f"     {strategy['description']}")
+            print()
+        sys.exit(0)
+    
     # 配置文件路径
     config_path = Path(args.config)
     if not config_path.is_absolute():
@@ -107,34 +136,54 @@ def main():
     # 导入流水线（延迟导入以加快启动）
     from src.pipeline import Pipeline
     from src.core.config import Config
+    from src.core.strategy import get_strategy_engine
     
-    # 加载配置
+    # 使用策略引擎构建配置
     try:
-        config = Config(str(config_path))
+        engine = get_strategy_engine()
+        
+        # 构建 CLI 覆盖
+        cli_overrides = {}
+        if args.pdf:
+            cli_overrides['pdf'] = {'path': args.pdf}
+        if args.output:
+            cli_overrides['output'] = {'dir': args.output}
+        if args.chunk_size:
+            cli_overrides['chunk'] = cli_overrides.get('chunk', {})
+            cli_overrides['chunk']['size'] = args.chunk_size
+        if args.chunk_overlap:
+            cli_overrides['chunk'] = cli_overrides.get('chunk', {})
+            cli_overrides['chunk']['overlap'] = args.chunk_overlap
+        if args.no_llm:
+            cli_overrides['llm'] = {'enabled': False}
+        if args.log_level:
+            cli_overrides['runtime'] = {'log_level': args.log_level}
+        
+        # 构建最终配置
+        final_config_dict = engine.build_final_config(
+            strategy_name=args.strategy,
+            user_config_path=config_path if config_path.exists() else None,
+            cli_overrides=cli_overrides
+        )
+        
+        # 验证配置
+        is_valid, errors = engine.validate_config(final_config_dict)
+        if not is_valid:
+            print("配置验证失败:")
+            for error in errors:
+                print(f"  - {error}")
+            sys.exit(1)
+        
+        # 从字典创建 Config 对象
+        config = Config.from_dict(final_config_dict)
+        
     except Exception as e:
-        print(f"错误: 加载配置失败: {e}")
+        print(f"错误: 配置构建失败: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
-    # 应用命令行覆盖
-    if args.pdf:
-        config.pdf.path = args.pdf
-    
-    if args.output:
-        config.output.dir = args.output
-    
-    if args.chunk_size:
-        config.chunk.size = args.chunk_size
-    
-    if args.chunk_overlap:
-        config.chunk.overlap = args.chunk_overlap
-    
-    if args.no_llm:
-        config.llm.enabled = False
-    
-    if args.log_level:
-        config.runtime.log_level = args.log_level
-    
-    # 验证配置
+    # 验证 PDF 路径
     errors = config.validate(script_dir)
     if errors:
         print("配置验证失败:")
@@ -144,32 +193,46 @@ def main():
     
     # Dry run 模式
     if args.dry_run:
+        strategy_name = final_config_dict.get('metadata', {}).get('strategy', 'unknown')
+        strategy_display = final_config_dict.get('metadata', {}).get('strategy_display_name', strategy_name)
+        
+        print("\n" + "="*60)
         print("配置验证通过!")
-        print(f"  PDF: {config.pdf.path}")
-        print(f"  Chunk: {config.chunk.size} tokens, overlap {config.chunk.overlap}")
-        print(f"  LLM: {'启用' if config.llm.enabled else '禁用'}")
-        print(f"  输出: {config.output.dir}")
+        print("="*60)
+        print(f"\n策略: {strategy_display}")
+        print(f"PDF: {config.pdf.path}")
+        print(f"Chunk: {config.chunk.size} tokens, overlap {config.chunk.overlap}")
+        print(f"LLM: {'启用' if config.llm.enabled else '禁用'}")
+        print(f"输出: {config.output.dir}")
+        print("\n" + "="*60 + "\n")
         sys.exit(0)
     
-    # 创建并运行流水线
-    pipeline = Pipeline(str(config_path), str(script_dir))
-    
-    # 应用覆盖（需要重新应用，因为 Pipeline 会重新加载配置）
-    if args.pdf:
-        pipeline.config.pdf.path = args.pdf
-    if args.output:
-        pipeline.config.output.dir = args.output
-    if args.chunk_size:
-        pipeline.config.chunk.size = args.chunk_size
-    if args.chunk_overlap:
-        pipeline.config.chunk.overlap = args.chunk_overlap
-    if args.no_llm:
-        pipeline.config.llm.enabled = False
-    if args.log_level:
-        pipeline.config.runtime.log_level = args.log_level
+    # 创建并运行流水线（使用构建好的配置）
+    pipeline = Pipeline.from_config(config, str(script_dir))
     
     try:
+        # 显示处理信息
+        strategy_name = final_config_dict.get('metadata', {}).get('strategy', 'unknown')
+        strategy_display = final_config_dict.get('metadata', {}).get('strategy_display_name', strategy_name)
+        
+        print("\n" + "="*60)
+        print(f"🔨 RAGSmith v2.0 - {strategy_display}")
+        print("="*60 + "\n")
+        
         stats = pipeline.run(resume=not args.no_resume)
+        
+        # 显示完成信息
+        print("\n" + "="*60)
+        print("✓ 处理完成!")
+        print("="*60)
+        print(f"\n接受的 chunks: {stats.accepted_chunks}")
+        print(f"拒绝的 chunks: {stats.rejected_chunks}")
+        print(f"处理时间: {stats.duration_seconds / 60:.1f} 分钟")
+        print(f"\n输出目录: {config.output.dir}")
+        print("  - rag-ready/    # 通用 RAG 格式")
+        print("  - platform/     # 平台特定格式")
+        print("  - report/       # HTML 报告")
+        print("\n" + "="*60 + "\n")
         
         # 返回码
         if stats.failed_pages > 0:

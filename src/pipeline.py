@@ -2,6 +2,7 @@
 流水线编排模块
 协调各处理阶段，实现完整的 PDF 预处理流程
 """
+import json
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -18,6 +19,8 @@ from .stages.normalizer import Normalizer
 from .stages.chunker import Chunker
 from .stages.validator import Validator
 from .stages.output_writer import OutputWriter, BatchWriter
+from .stages.output_exporter import OutputExporter
+from .stages.report_generator import ReportGenerator
 
 
 class Pipeline:
@@ -33,20 +36,28 @@ class Pipeline:
     6. 输出层：写入结果文件
     """
     
-    def __init__(self, config_path: str, base_dir: Optional[str] = None):
+    def __init__(self, config_path: str = None, base_dir: Optional[str] = None, config: Optional[Config] = None):
         """
         初始化流水线
         
         Args:
-            config_path: 配置文件路径
+            config_path: 配置文件路径（与 config 二选一）
             base_dir: 项目基础目录，默认为配置文件所在目录的父目录
+            config: Config 对象（与 config_path 二选一）
         """
-        self.config = Config(config_path)
+        if config:
+            self.config = config
+        elif config_path:
+            self.config = Config(config_path)
+        else:
+            raise ValueError("必须提供 config_path 或 config 参数之一")
         
         if base_dir:
             self.base_dir = Path(base_dir)
-        else:
+        elif config_path:
             self.base_dir = Path(config_path).parent.parent
+        else:
+            self.base_dir = Path.cwd()
         
         self.logger = self._setup_logger()
         
@@ -63,6 +74,20 @@ class Pipeline:
         
         # 断点续传
         self.checkpoint: Optional[Checkpoint] = None
+    
+    @classmethod
+    def from_config(cls, config: Config, base_dir: str) -> 'Pipeline':
+        """
+        从 Config 对象创建 Pipeline
+        
+        Args:
+            config: Config 对象
+            base_dir: 项目基础目录
+            
+        Returns:
+            Pipeline 对象
+        """
+        return cls(config=config, base_dir=base_dir)
     
     def _setup_logger(self) -> logging.Logger:
         """设置日志记录器"""
@@ -183,6 +208,10 @@ class Pipeline:
         
         # 写入统计信息
         self.output_writer.write_stats(self.stats)
+        
+        # 生成产品化输出
+        self.logger.info("生成产品化输出...")
+        self._generate_product_outputs()
         
         # 输出摘要
         self._print_summary()
@@ -310,10 +339,62 @@ class Pipeline:
         )
         self.output_writer.save_checkpoint(checkpoint)
     
+    def _generate_product_outputs(self) -> None:
+        """生成产品化输出（多格式导出和报告）"""
+        try:
+            output_dir = self.config.get_output_dir(self.base_dir)
+            
+            # 1. 读取已生成的 chunks 和 rejected chunks
+            chunks = self._load_chunks_from_file(output_dir / self.config.output.chunks_file)
+            rejected = self._load_rejected_from_file(output_dir / self.config.output.rejected_file)
+            
+            # 2. 导出多种格式
+            exporter = OutputExporter(output_dir)
+            exporter.export_all(chunks)
+            self.logger.info(f"✓ 已导出多种格式到 {output_dir / 'rag-ready'} 和 {output_dir / 'platform'}")
+            
+            # 3. 生成 HTML 报告
+            report_gen = ReportGenerator(output_dir)
+            report_file = report_gen.generate_report(
+                chunks=chunks,
+                rejected_chunks=rejected,
+                stats=self.stats.__dict__,
+                config=self.config._raw_config
+            )
+            self.logger.info(f"✓ 已生成 HTML 报告: {report_file}")
+            
+        except Exception as e:
+            self.logger.warning(f"生成产品化输出时出错: {e}")
+    
+    def _load_chunks_from_file(self, file_path: Path) -> List[Chunk]:
+        """从 JSONL 文件加载 chunks"""
+        chunks = []
+        if file_path.exists():
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        chunks.append(Chunk.from_dict(json.loads(line)))
+        return chunks
+    
+    def _load_rejected_from_file(self, file_path: Path) -> List[Dict[str, Any]]:
+        """从 JSONL 文件加载被拒绝的 chunks"""
+        rejected = []
+        if file_path.exists():
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        data = json.loads(line)
+                        rejected.append({
+                            'chunk_id': data.get('chunk_id'),
+                            'reason': data.get('metadata', {}).get('reject_reason', 'unknown'),
+                            'content': data.get('content', '')[:100]
+                        })
+        return rejected
+    
     def _print_summary(self) -> None:
         """输出处理摘要"""
         self.logger.info("=" * 60)
-        self.logger.info("处理完成")
+        self.logger.info("处理完成!")
         self.logger.info("=" * 60)
         self.logger.info(f"源文件: {self.stats.source_file}")
         self.logger.info(f"总页数: {self.stats.total_pages}")

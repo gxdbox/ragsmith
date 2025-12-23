@@ -1,0 +1,78 @@
+# High Quality Strategy - 追求最高质量
+# 适用场景：重要文档、需要高精度 RAG、对成本不敏感的场景
+
+strategy:
+  name: "high_quality"
+  display_name: "High Quality"
+  description: "最高质量输出，严格过滤，适合重要文档和精确检索"
+  
+# PDF 输入配置
+pdf:
+  start_page: 0
+  end_page: null
+
+# 解析配置 - 完整提取
+parsing:
+  extract_tables: true
+  extract_images: true
+  table_strategy: "lines_strict"
+
+# 规范化配置 - 深度清洗
+normalization:
+  remove_headers_footers: true
+  merge_broken_lines: true
+  normalize_whitespace: true
+  normalize_punctuation: true
+  header_footer_max_lines: 3
+  min_line_length: 3
+
+# 切片配置 - 小 chunk，更精细
+chunk:
+  size: 600
+  overlap: 200
+  min_chunk_size: 150
+  split_by: "token"
+  respect_sentence_boundary: true
+
+# 质量校验 - 严格标准
+quality:
+  min_length: 300
+  max_noise_ratio: 0.2
+  min_info_density: 0.4
+  max_repetition_ratio: 0.3
+  
+  garble_detection:
+    enabled: true
+    max_garble_ratio: 0.05
+  
+  llm_validation:
+    enabled: true
+    only_edge_chunks: false
+    edge_threshold: 0.7
+
+# LLM 配置 - 全量启用
+llm:
+  enabled: true
+  provider: "ollama"
+  model: "qwen:7b"
+  endpoint: "http://localhost:11434"
+  max_calls: 2000
+  timeout: 90
+  retry_times: 5
+  temperature: 0.05
+
+# 输出配置
+output:
+  dir: "data/output"
+  pages_file: "pages.jsonl"
+  chunks_file: "chunks.jsonl"
+  rejected_file: "rejected.jsonl"
+  stats_file: "stats.json"
+  checkpoint_file: "checkpoint.json"
+
+# 运行配置
+runtime:
+  batch_size: 5
+  log_level: "DEBUG"
+  save_interval: 20
+  enable_checkpoint: true

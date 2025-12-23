@@ -11,8 +11,8 @@ __pycache__/
 
 # 数据文件
 data/input/*.pdf
-data/output/*.jsonl
-data/output/*.json
+data/output/
+!data/output/.gitkeep
 
 # IDE
 .idea/

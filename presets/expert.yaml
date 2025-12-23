@@ -1,0 +1,10 @@
+# Expert Strategy - 完全自定义
+# 适用场景：专业用户，需要完全控制所有参数
+
+strategy:
+  name: "expert"
+  display_name: "Expert Mode"
+  description: "不覆盖任何参数，完全由用户手动配置"
+
+# 此文件为空模板，不覆盖任何默认值
+# 用户需要在 config/pipeline.yaml 中自行配置所有参数
